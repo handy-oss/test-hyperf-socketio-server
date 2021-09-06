@@ -1,36 +1,85 @@
-# Introduction
+# hyperf/socker.io重启出现异常和解决
+```
+描述：新安装hyperf/socketio-server重启出现协程异常
+```
 
-This is a skeleton application using the Hyperf framework. This application is meant to be used as a starting place for those looking to get their feet wet with Hyperf Framework.
+## 安装
 
-# Requirements
+composer install -o
 
-Hyperf has some requirements for the system environment, it can only run under Linux and Mac environment, but due to the development of Docker virtualization technology, Docker for Windows can also be used as the running environment under Windows.
+配置redis（使用房间）
 
-The various versions of Dockerfile have been prepared for you in the [hyperf/hyperf-docker](https://github.com/hyperf/hyperf-docker) project, or directly based on the already built [hyperf/hyperf](https://hub.docker.com/r/hyperf/hyperf) Image to run.
+启动：docker-compose up -d
 
-When you don't want to use Docker as the basis for your running environment, you need to make sure that your operating environment meets the following requirements:  
+重启：docker-compose restart
+```
+[INFO] Worker#1 started.
+[INFO] Worker#3 started.
+[INFO] Worker#2 started.
+[INFO] Worker#0 started.
+[INFO] WebSocket Server listening at 0.0.0.0:9502
+[INFO] HTTP Server listening at 0.0.0.0:9501
+[2021-09-06 06:15:49 #1.4]      INFO    Server is shutdown now
+[2021-09-06 06:15:52 *20.0]     WARNING Worker_reactor_try_to_exit() (ERRNO 9012): worker exit timeout, forced termination
 
- - PHP >= 7.3
- - Swoole PHP extension >= 4.5，and Disabled `Short Name`
- - OpenSSL PHP extension
- - JSON PHP extension
- - PDO PHP extension （If you need to use MySQL Client）
- - Redis PHP extension （If you need to use Redis Client）
- - Protobuf PHP extension （If you need to use gRPC Server of Client）
+===================================================================
+ [FATAL ERROR]: all coroutines (count: 1) are asleep - deadlock!
+===================================================================
 
-# Installation using Composer
+ [Coroutine-3]
+--------------------------------------------------------------------
+#0  Redis->zRangeByScore() called at [/data/hyperf/vendor/hyperf/redis/src/RedisConnection.php:76]
+#1  Hyperf\Redis\RedisConnection->__call() called at [/data/hyperf/vendor/hyperf/redis/src/Redis.php:49]
+#2  Hyperf\Redis\Redis->__call() called at [/data/hyperf/vendor/hyperf/redis/src/RedisProxy.php:32]
+#3  Hyperf\Redis\RedisProxy->__call() called at [/data/hyperf/vendor/hyperf/socketio-server/src/Room/RedisAdapter.php:207]
+#4  Hyperf\SocketIOServer\Room\RedisAdapter->cleanUpExpiredOnce() called at [/data/hyperf/vendor/hyperf/socketio-server/src/Room/RedisAdapter.php:199]
+#5  Hyperf\SocketIOServer\Room\RedisAdapter->Hyperf\SocketIOServer\Room\{closure}() called at [/data/hyperf/vendor/hyperf/utils/src/Functions.php:271]
+#6  call() called at [/data/hyperf/vendor/hyperf/utils/src/Coroutine.php:62]
 
-The easiest way to create a new Hyperf project is to use Composer. If you don't have it already installed, then please install as per the documentation.
+[INFO] Worker#1 started.
+[INFO] Worker#2 started.
+[INFO] Worker#3 started.
+[INFO] Worker#0 started.
+[INFO] WebSocket Server listening at 0.0.0.0:9502
+[INFO] HTTP Server listening at 0.0.0.0:9501
+```
 
-To create your new Hyperf project:
+## 异常出现位置
 
-$ composer create-project hyperf/hyperf-skeleton path/to/install
+> ./vendor/hyperf/socketio-server/src/Room/RedisAdapter.php:198
 
-Once installed, you can run the server immediately using the command below.
+## 异常原因
 
-$ cd path/to/install
-$ php bin/hyperf.php start
+```
+public function cleanUpExpired(): void
+    {
+        Coroutine::create(function () {
+            while (true) {
+                CoordinatorManager::until(Constants::WORKER_EXIT)->yield($this->cleanUpExpiredInterval / 1000);
+                $this->cleanUpExpiredOnce();
+            }
+        });
+    }
 
-This will start the cli-server on port `9501`, and bind it to all network interfaces. You can then visit the site at `http://localhost:9501/`
+此代码对work进程退出没有做处理，导致当使用`docker-compose restart`重启时出现无法正常退出协程报错
+```
 
-which will bring up Hyperf default home page.
+## 解决方式
+
+```
+public function cleanUpExpired(): void
+    {
+        Coroutine::create(function () {
+            while (true) {
+                if (CoordinatorManager::until(Constants::WORKER_EXIT)->yield($this->cleanUpExpiredInterval / 1000)) {
+                // work进程退出停止循环
+                 break;
+                }
+                $this->cleanUpExpiredOnce();
+            }
+        });
+    }
+
+对进程退出做处理
+```
+
