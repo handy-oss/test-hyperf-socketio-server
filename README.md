@@ -13,6 +13,8 @@ composer install -o
 
 重启：docker-compose restart
 ```
+docker logs -f hyperf
+
 [INFO] Worker#1 started.
 [INFO] Worker#3 started.
 [INFO] Worker#2 started.
