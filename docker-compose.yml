@@ -1,0 +1,15 @@
+version: "3.7"
+services:
+  hyperf:
+    image: "hyperf/hyperf:8.0-alpine-v3.12-swoole"
+    container_name: hyperf
+    working_dir: "/data/hyperf"
+    volumes:
+      - "./:/data/hyperf"
+    ports:
+      - 9551:9501
+      - 9552:9502
+    command:
+      - php
+      - bin/hyperf.php
+      - start
